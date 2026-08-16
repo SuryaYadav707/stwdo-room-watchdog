@@ -1,0 +1,118 @@
+# STWDO watchdog on GitHub Actions — SHIPPED BUT UNVERIFIED.
+#
+# The primary deployment is the user's own machine (see scripts/register_task.ps1).
+# This workflow exists as a backup. Before relying on it, read these caveats:
+#
+#   1. RUNNER IP. GitHub-hosted runners exit through shared Azure ranges. mosparo
+#      rate-limits and locks out per IP, so you inherit the failure budget of
+#      every other runner on that address. Whether stwdo's mosparo instance
+#      actually rejects these IPs has NOT been measured. Run the `probe` job
+#      below a few times before trusting this.
+#
+#   2. CRON DRIFT. GitHub's scheduler runs late by 3-15 minutes at peak, so this
+#      starts at 09:40 Berlin and polls in-job through the 10:00 publication.
+#
+#   3. STATE. Runners are stateless, and the application lock MUST survive
+#      between runs — STWDO deletes every application from a person who submits
+#      more than once. The lock is committed to the `state` branch BEFORE the
+#      run, and the job refuses to go live if that push fails.
+#
+#   4. PII. profile.yaml contents live in repository secrets. Use a PRIVATE repo.
+#
+# Live submission additionally requires application.live_enabled: true in
+# config.yaml, so this workflow is monitor-only until you change that yourself.
+
+name: STWDO watchdog
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to poll, in minutes"
+        default: "45"
+      probe_only:
+        description: "Only test the mosparo gate, then stop"
+        type: boolean
+        default: false
+  schedule:
+    # 09:40 Berlin — the pair covers CEST (UTC+2) and CET (UTC+1); the job itself
+    # checks the real Berlin time so the off-season one exits immediately.
+    - cron: "40 7 * * 1,3"
+    - cron: "40 8 * * 1,3"
+
+permissions:
+  contents: write   # needed to persist the lock to the state branch
+
+concurrency:
+  # Two concurrent runs could produce two applications. Never allow it.
+  group: stwdo-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          playwright install --with-deps chromium
+
+      - name: Restore persisted state (application lock, seen offers)
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin state >/dev/null 2>&1; then
+            git fetch origin state --depth=1
+            git checkout origin/state -- data/ 2>/dev/null || echo "No state directory yet."
+          else
+            echo "No state branch yet — starting fresh."
+          fi
+
+      - name: Write profile from secrets
+        if: ${{ secrets.PROFILE_YAML != '' }}
+        env:
+          PROFILE_YAML: ${{ secrets.PROFILE_YAML }}
+        run: printf '%s' "$PROFILE_YAML" > profile.yaml
+
+      - name: Probe the mosparo gate
+        run: stwdo probe
+
+      - name: Watch
+        if: ${{ github.event.inputs.probe_only != 'true' }}
+        env:
+          STWDO_TELEGRAM_BOT_TOKEN: ${{ secrets.STWDO_TELEGRAM_BOT_TOKEN }}
+          STWDO_TELEGRAM_CHAT_ID: ${{ secrets.STWDO_TELEGRAM_CHAT_ID }}
+        run: |
+          MINUTES="${{ github.event.inputs.minutes || '45' }}"
+          # Baseline is 120s, burst is 15s; this bounds the run by poll count.
+          POLLS=$(( MINUTES * 4 ))
+          stwdo watch --max-polls "$POLLS"
+
+      - name: Persist state
+        if: always()
+        run: |
+          git config user.name "stwdo-watchdog"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -B state
+          git add -f data/stwdo.sqlite3 data/storage_state.json 2>/dev/null || true
+          git commit -m "state: watchdog run ${{ github.run_id }}" || echo "Nothing to persist."
+          git push --force origin state
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ github.run_id }}
+          path: |
+            data/evidence/
+            data/watchdog.log
+          retention-days: 14
+          if-no-files-found: ignore

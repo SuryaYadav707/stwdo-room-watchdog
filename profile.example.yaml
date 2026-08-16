@@ -1,0 +1,61 @@
+# Copy to profile.yaml and fill in. profile.yaml is gitignored — it holds PII.
+#
+# These fields mirror the real application form, which is a Wohnungshelden widget
+# (app.wohnungshelden.de) embedded on each STWDO offer page. Captured live on
+# 2026-08-15 via `stwdo recon`.
+#
+# Fields marked REQUIRED are mandatory on the form. An application missing any of
+# them cannot be submitted, and `stwdo apply --live` refuses rather than sending
+# an incomplete one — STWDO gives the room to the first COMPLETE application.
+
+personal:
+  # Dropdown. Exactly one of: "Keine" | "Herr" | "Frau"
+  salutation: "Herr"
+  first_name: "Max"            # REQUIRED
+  last_name: "Mustermann"      # REQUIRED
+  # Leave these blank if you use `contacts` at the bottom of this file.
+  email: ""
+  phone: ""     # Telefonnummer — optional landline field on the form
+  # REQUIRED. ISO here; filled into the form as DD.MM.YYYY.
+  date_of_birth: "2001-04-17"
+  # Dropdown, German name with the English one in brackets, e.g.
+  # "Indien (India)", "Deutschland (Germany)", "China".
+  nationality: "Indien (India)"
+
+study:
+  # REQUIRED dropdown. Exactly one of:
+  #   TU-Dortmund | FH-Dortmund | FH-Südwestfalen | ISM |
+  #   Fernuniversität Hagen | UE Iserlohn | Folkwang Hochschule (Dortmund) |
+  #   Andere Hochschule (Other university)
+  university: "TU-Dortmund"
+  # REQUIRED dropdown. Exactly one of:
+  #   "Sommersemester (Summer semester)" | "Wintersemester (Winter semester)"
+  start_semester: "Wintersemester (Winter semester)"
+  start_year: "2026"           # REQUIRED
+  semesters_wanted: "4"        # REQUIRED — how many semesters you want the room
+
+housing:
+  # REQUIRED. Maximum monthly total rent you accept, in euros.
+  # Keep this consistent with rules.max_rent in config.yaml (currently 400).
+  max_total_rent: "400"
+  wheelchair_required: false   # REQUIRED radio: Ja / Nein
+  notes: ""                    # optional "Anmerkungen" free text
+
+# Email + mobile in rotation, one pair per attempt. Attempt 1 uses the first
+# pair, attempt 2 the second, then it wraps. An attempt only advances when a
+# submission is actually started, and the lock permits one of those until you
+# reset it by hand — so this does NOT allow two live applications. STWDO counts
+# one application per PERSON, not per email; a second one deletes both.
+#
+# With a single pair this behaves exactly like plain email + mobile.
+contacts:
+  - email: "max.mustermann@example.com"
+    mobile: "+49 1579 123456"   # REQUIRED; the form's hint shows this format
+
+consents:
+  # Both must be true to submit. Read them before setting:
+  #  - you confirm you can present a valid Immatrikulationsbescheinigung from
+  #    the university named above if the application succeeds
+  #  - you confirm you have read the privacy policy
+  confirm_enrollment_certificate: false
+  confirm_privacy_policy: false

@@ -1,0 +1,135 @@
+# STWDO room watchdog configuration.
+# Every value here is safe to commit — no personal data, no secrets.
+# Personal data lives in profile.yaml, secrets in .env (both gitignored).
+
+site:
+  base_url: "https://www.stwdo.de"
+  offers_path: "/wohnen/aktuelle-wohnangebote"
+  offer_detail_path: "/freie-zimmer/{offer_id}"
+  # Site serves DE and EN. Pin one so text parsing stays stable.
+  language: "de"
+  timezone: "Europe/Berlin"
+
+browser:
+  headless: true
+  # Kept identical on the httpx fast path so the session looks consistent.
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+  locale: "de-DE"
+  gate_timeout_seconds: 45
+
+polling:
+  # Rooms are uploaded any time on any day — Mon/Wed 10:00 is only the bulk drop.
+  # Baseline uses the cheap httpx path, so a tight interval costs almost nothing.
+  baseline_interval_seconds: 120
+  jitter_ratio: 0.25
+
+  # Bulk-drop windows: much tighter polling.
+  burst:
+    enabled: true
+    weekdays: ["mon", "wed"]
+    start: "09:55"
+    end: "10:45"
+    interval_seconds: 15
+
+  # Optional: slow down overnight. Off by default so nothing is missed.
+  quiet_hours:
+    enabled: false
+    start: "02:00"
+    end: "06:00"
+    interval_seconds: 600
+
+  # Alert after this many consecutive failed polls.
+  failure_alert_threshold: 3
+  backoff_max_seconds: 900
+
+rules:
+  # ---- Hard filters: an offer failing any of these is rejected outright. ----
+  # All four STWDO locations are in scope.
+  cities: ["Dortmund", "Hagen", "Iserlohn", "Soest"]
+  max_rent: 400.0          # EUR/month, compared against the bucket's LOWEST price
+  min_size: 15.0           # m², compared against the bucket's LARGEST size
+  allowed_types:
+    - single_apartment
+    - shared_2
+    - shared_3
+    - shared_4
+
+  # ---- Scoring ----
+  # Auto-apply fires at or above this score. Set to 101 for notify-only mode.
+  #
+  # Deliberately low: shared rooms ARE acceptable, so the hard filters above
+  # (city, 400 EUR, 15 m2) are the real gate and this is only a backstop against
+  # junk data. Preference is expressed by ranking, not by this threshold —
+  # whenever an Einzelapartment and a WG room are both listed, the apartment
+  # scores higher and wins. Raise to 70 to make it single-apartment-only again.
+  auto_apply_min_score: 35.0
+
+  weights:
+    # Room type dominates: a self-contained Einzelapartment (own kitchen + bath,
+    # no flatmates) is the goal. Every listing is a single ROOM either way — a
+    # "3er-WG" means your own private room in a 3-person flat.
+    room_type: 0.45
+    rent: 0.35
+    size: 0.15
+    availability: 0.05
+    # City is not a preference — all four locations are equally acceptable.
+    location: 0.0
+
+  rent_scoring:
+    # Anything at or below floor_rent scores 100; at max_rent scores 0.
+    floor_rent: 280.0
+
+  size_scoring:
+    ideal_size: 28.0       # m² — at or above this scores 100
+
+  type_preference:         # most preferred first
+    - single_apartment
+    - shared_2
+    - shared_3
+    - shared_4
+
+  availability_scoring:
+    # available_count at or above this scores 100 (more free units = better odds)
+    saturation_count: 10
+
+  location_scoring:
+    # Location carries weight 0.0 — no city or address preference. The machinery
+    # below stays in place: set the weight above and fill these tables if you
+    # ever want to favour one campus.
+    campus_anchor: ""
+    good_minutes: 10       # at or below this scores 100
+    bad_minutes: 45        # at or above this scores 0
+    default_minutes: 30
+    walking_minutes: {}    # per address, e.g. { "Dortmund 1": 10 }
+    city_minutes: {}       # per city fallback, e.g. { Dortmund: 15 }
+
+notifications:
+  telegram:
+    # Off: STWDO emails you about the application itself. Note that nothing
+    # emails you about the WATCHDOG — when this is false, every alert (applied,
+    # gate broken, parse failure) goes to data/watchdog.log and data/alerts.log
+    # instead, so check `stwdo status` periodically.
+    enabled: false
+    # Token and chat id come from .env, never from this file.
+    send_screenshots: true
+
+application:
+  # Safety: nothing is ever submitted unless this is explicitly true AND the CLI
+  # is invoked with --live. Both gates must open.
+  live_enabled: false
+  # Bot never uploads documents — it reminds you to do it by hand.
+  document_reminder: >
+    Application submitted. STWDO will now request your documents
+    (Immatrikulationsbescheinigung etc). Upload them IMMEDIATELY —
+    the room goes to the first person with a COMPLETE application.
+
+llm:
+  # Advisory only. Never on the critical path.
+  enabled: false
+  model: "claude-sonnet-5"
+
+storage:
+  database_path: "data/stwdo.sqlite3"
+  storage_state_path: "data/storage_state.json"
+  evidence_dir: "data/evidence"
+  log_path: "data/watchdog.log"

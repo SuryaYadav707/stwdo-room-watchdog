@@ -1,0 +1,113 @@
+# All site-coupled selectors live here, so a redesign is a config edit rather
+# than a code change.
+#
+# Captured live on 2026-08-15 with `stwdo recon --offer 6583`.
+#
+# Applying takes three stages, not one:
+#   1. site gate     — mosparo on every /wohnen and /freie-zimmer URL
+#   2. offer gate    — a SECOND mosparo box plus a Wohnungshelden data-processing
+#                      consent, both on the offer page
+#   3. the real form — a Wohnungshelden widget (app.wohnungshelden.de) in an
+#                      iframe, built with Angular Material + formly
+
+gate:
+  form: "#housing-offers-access-form"
+  mosparo_box: "#housing-offers-mosparo-box"
+  # The styled div carries the click handler; the real <input> is visually
+  # hidden and ignores synthetic clicks.
+  mosparo_checkbox: ".mosparo__checkbox"
+  # Must carry a value before the consent click, or mosparo answers
+  # "No submit token available. Validation of this form is not possible."
+  mosparo_submit_token: "input.mosparo__submit-token"
+
+offer_list:
+  # Anchored on the detail href — the most stable signal on the page. On the live
+  # site the anchor IS the card (it wraps image, heading and badges).
+  card: "a[href*='/freie-zimmer/']"
+
+offer_detail:
+  # Stage 2, all on https://www.stwdo.de/freie-zimmer/<id>
+  application_gate_form: "form[id^='room-application-gate-form']"
+  # "Ich bin damit einverstanden, dass meine Daten im Rahmen des
+  #  Bewerbungsmanagements von Wohnungshelden.de verarbeitet werden."
+  consent_checkbox: "#application-consent-cb"
+  mosparo_box: "[id^='room-application-mosparo-box']"
+  # Appears only once consent is given and mosparo validates.
+  load_form_button: "#application-load-btn"
+
+application_form:
+  # Stage 3 lives inside this iframe.
+  frame_selector: "iframe[src*='wohnungshelden']"
+  submit_button: "button[type='submit']"
+  # Confirmation wording is only observable after a real submission. Left empty
+  # until then; applicant.py warns loudly rather than assuming success.
+  success_text: ""
+  error_container: "mat-error"
+
+  # profile key -> how to find and drive the control.
+  #
+  # kind: text | mat_select | radio | checkbox
+  # selector: a CSS selector, or "label:<text>" to match by the visible label.
+  #
+  # Angular assigns mat-input-N ids in DOM order, so those are matched by label.
+  # formly controls keep their semantic key in the id, so those are matched on an
+  # id substring, which survives the surrounding counter changing.
+  fields:
+    salutation:
+      selector: "mat-select:not([id*='formly'])"
+      kind: mat_select
+      optional: true
+    first_name:
+      selector: "label:Vorname"
+      kind: text
+    last_name:
+      selector: "label:Nachname"
+      kind: text
+    email:
+      selector: "label:E-Mail-Adresse"
+      kind: text
+    phone:
+      selector: "label:Telefonnummer"
+      kind: text
+      optional: true
+    notes:
+      selector: "label:Anmerkungen"
+      kind: text
+      optional: true
+    mobile:
+      selector: "input[id*='mobile_number']"
+      kind: text
+    date_of_birth:
+      selector: "input[id*='date_of_birth']"
+      kind: text
+    nationality:
+      selector: "mat-select[id*='nationality']"
+      kind: mat_select
+      optional: true
+    start_semester:
+      selector: "mat-select[id*='startOfSemester']"
+      kind: mat_select
+    start_year:
+      selector: "input[id*='_year_']"
+      kind: text
+    semesters_wanted:
+      selector: "input[id*='numberOfSemester']"
+      kind: text
+    max_total_rent:
+      selector: "input[id*='gesamtmiete_max']"
+      kind: text
+    university:
+      selector: "mat-select[id*='stwdo_university']"
+      kind: mat_select
+    wheelchair_required:
+      # Radio pair: ...rollstuhlgerechte_wohnung_0_0-input = Ja,
+      #             ...rollstuhlgerechte_wohnung_0_1-input = Nein
+      kind: radio
+      selector_true: "input[id*='rollstuhlgerechte_wohnung'][id$='_0_0-input']"
+      selector_false: "input[id*='rollstuhlgerechte_wohnung'][id$='_0_1-input']"
+    confirm_enrollment_certificate:
+      selector: "input[id*='stwdo_immatrikulation']"
+      kind: checkbox
+    confirm_privacy_policy:
+      selector: "input[id*='datenschutzhinweis']"
+      kind: checkbox
